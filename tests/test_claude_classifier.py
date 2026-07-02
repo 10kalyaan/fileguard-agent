@@ -60,16 +60,12 @@ def test_parse_claude_response_rejects_confidence_outside_range() -> None:
         )
 
 
-def test_parse_claude_response_handles_invalid_category_safely() -> None:
-    category, confidence, reason, needs_review = parse_claude_response(
-        '{"category":"Taxes","confidence":0.8,"reason":"x","needs_review":false}',
-        ALLOWED_SEMANTIC_FOLDERS,
-    )
-
-    assert category == "Misc"
-    assert confidence == 0.2
-    assert "invalid category" in reason
-    assert needs_review
+def test_parse_claude_response_rejects_invalid_category() -> None:
+    with pytest.raises(ClaudeClassificationError, match="invalid category"):
+        parse_claude_response(
+            '{"category":"Taxes","confidence":0.8,"reason":"x","needs_review":false}',
+            ALLOWED_SEMANTIC_FOLDERS,
+        )
 
 
 def test_classify_with_claude_uses_mocked_anthropic_client(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -112,4 +108,3 @@ def test_classify_with_claude_requires_api_key(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(ClaudeClassificationError, match="ANTHROPIC_API_KEY is missing"):
         classify_with_claude("main.py", ".py", "Code/Python", ALLOWED_SEMANTIC_FOLDERS)
-

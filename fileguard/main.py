@@ -2,10 +2,10 @@ import argparse
 from pathlib import Path
 import sys
 
-from fileguard.config import get_claude_config
+from fileguard.config import DEFAULT_CLASSIFICATION_MODE, get_claude_config
 from fileguard.db import approve_plan, get_audit_log, get_plan, save_plan
 from fileguard.executor import execute_plan
-from fileguard.planner import create_plan
+from fileguard.planner import create_plan_with_summary
 from fileguard.rollback import rollback_plan
 from fileguard.scanner import scan_folder
 
@@ -38,26 +38,24 @@ def run_preview(args: argparse.Namespace) -> None:
     source_folder = Path(args.path)
     output_root = Path(args.output_root)
     db_path = Path(args.db)
-    smart_requested = (args.smart or args.claude) and not args.no_claude
     config = get_claude_config()
-    use_claude = False
-
-    if smart_requested:
-        if not config["enabled"]:
-            print("Smart mode requested, but Claude is disabled. Using rule-based classification.")
-        elif not config["api_key"]:
-            print("Smart mode requested, but ANTHROPIC_API_KEY is missing. Using rule-based classification.")
-        else:
-            use_claude = True
+    classification_mode = _resolve_preview_mode(args, config)
+    if args.max_claude_calls is not None:
+        config["max_api_calls_per_run"] = args.max_claude_calls
 
     files = scan_folder(source_folder)
-    moves = create_plan(files, output_root, use_claude=use_claude, claude_config=config)
+    moves, summary = create_plan_with_summary(
+        files,
+        output_root,
+        classification_mode=classification_mode,
+        claude_config=config,
+    )
     plan_id = save_plan(db_path, source_folder, output_root, moves)
 
+    _print_preview_warning(summary, config)
     print(f"Plan ID: {plan_id}")
     print(f"Files scanned: {len(files)}")
-    if smart_requested:
-        _print_smart_summary(moves, config, use_claude)
+    _print_classification_summary(summary)
     print()
     _print_moves(moves)
     print()
@@ -171,9 +169,13 @@ def _build_parser() -> argparse.ArgumentParser:
     preview_parser.add_argument("--path", required=True, help="Folder to scan")
     preview_parser.add_argument("--output-root", default="./Organized", help="Root folder for proposed destinations")
     preview_parser.add_argument("--db", default="./fileguard.db", help="SQLite database path")
-    preview_parser.add_argument("--smart", action="store_true", help="Use optional Claude classification for low-confidence files")
-    preview_parser.add_argument("--claude", action="store_true", help="Alias for --smart")
-    preview_parser.add_argument("--no-claude", action="store_true", help="Disable Claude even if --smart is present")
+    preview_parser.add_argument("--rules-only", action="store_true", help="Use rule-based semantic classification only")
+    preview_parser.add_argument("--low-confidence", action="store_true", help="Use Claude only for low-confidence rule matches")
+    preview_parser.add_argument("--smart", action="store_true", help="Alias for --low-confidence")
+    preview_parser.add_argument("--claude-first", action="store_true", help="Use Claude-first semantic classification")
+    preview_parser.add_argument("--claude", action="store_true", help="Alias for --claude-first")
+    preview_parser.add_argument("--no-claude", action="store_true", help="Alias for --rules-only")
+    preview_parser.add_argument("--max-claude-calls", type=int, help="Override max Claude calls for this preview")
     preview_parser.set_defaults(handler=run_preview)
 
     show_parser = subparsers.add_parser("show-plan", help="Display a saved dry-run plan")
@@ -215,28 +217,44 @@ def _print_moves(moves: list) -> None:
     for move in moves:
         source_path = _field(move, "source_path")
         destination_path = _field(move, "destination_path")
+        classifier = _field(move, "classifier")
         confidence = _field(move, "confidence")
         reason = _field(move, "reason")
         print(f"- {source_path}")
         print(f"  -> {destination_path}")
+        print(f"  classifier: {classifier}")
         print(f"  confidence: {confidence:.2f}")
         print(f"  reason: {reason}")
 
 
-def _print_smart_summary(moves: list, config: dict, use_claude: bool) -> None:
-    claude_count = _count_classifier(moves, "claude")
-    fallback_count = _count_classifier(moves, "rules_fallback")
-    rules_count = _count_classifier(moves, "rules")
-    max_calls = config.get("max_api_calls_per_run", 0)
+def _resolve_preview_mode(args: argparse.Namespace, config: dict) -> str:
+    if args.rules_only or args.no_claude:
+        return "rules-only"
 
-    print(f"Claude calls used: {claude_count + fallback_count} / {max_calls if use_claude else 0}")
-    print(f"Rule-based classifications: {rules_count}")
-    print(f"Claude classifications: {claude_count}")
-    print(f"Fallbacks: {fallback_count}")
+    if args.low_confidence or args.smart:
+        return "low-confidence"
+
+    if args.claude_first or args.claude:
+        return "claude-first"
+
+    return config.get("classification_mode", DEFAULT_CLASSIFICATION_MODE)
 
 
-def _count_classifier(moves: list, classifier: str) -> int:
-    return sum(1 for move in moves if _field(move, "classifier") == classifier)
+def _print_preview_warning(summary: dict, config: dict) -> None:
+    if summary["classification_mode"] == "claude-first" and not summary["claude_available"]:
+        if config.get("enabled_setting") == "false":
+            print("Claude-first mode selected, but Claude is disabled. Falling back to rule-based classification.")
+        elif not config.get("api_key"):
+            print("Claude-first mode selected, but Claude is unavailable. Falling back to rule-based classification.")
+
+
+def _print_classification_summary(summary: dict) -> None:
+    print(f"Classification mode: {summary['classification_mode']}")
+    print(f"Claude available: {'yes' if summary['claude_available'] else 'no'}")
+    print(f"Claude calls used: {summary['claude_calls_used']} / {summary['max_claude_calls']}")
+    print(f"Claude classifications: {summary['claude_classifications']}")
+    print(f"Rule classifications: {summary['rule_classifications']}")
+    print(f"Rule fallbacks: {summary['rule_fallbacks']}")
 
 
 def _field(item: object, field_name: str):

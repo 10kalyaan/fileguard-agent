@@ -15,7 +15,10 @@ def build_claude_prompt(
     allowed_categories: list[str],
 ) -> str:
     categories = "\n".join(f"* {category}" for category in allowed_categories)
-    return f"""You are classifying a local file for a safe file organizer.
+    return f"""You are classifying the semantic subfolder only for a safe local file organizer.
+
+The top-level folder has already been decided by deterministic extension rules.
+Do not change or reinterpret the top-level folder.
 
 File metadata:
 
@@ -29,7 +32,7 @@ Allowed semantic categories:
 
 Rules:
 
-* Choose exactly one category from the allowed categories.
+* Choose exactly one semantic folder from the allowed categories.
 * Do not invent categories.
 * If unsure, choose Misc.
 * Return valid JSON only.
@@ -56,7 +59,7 @@ def parse_claude_response(text: str, allowed_categories: list[str]) -> tuple[str
     needs_review = parsed.get("needs_review")
 
     if category not in allowed_categories:
-        return "Misc", 0.2, "Claude returned an invalid category; using Misc.", True
+        raise ClaudeClassificationError(f"Claude returned invalid category: {category}")
 
     if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
         raise ClaudeClassificationError("Claude confidence must be a number between 0 and 1")
@@ -88,7 +91,7 @@ def classify_with_claude(
     except ImportError as exc:
         raise ClaudeClassificationError("anthropic package is not installed; run pip install -r requirements.txt") from exc
 
-    selected_model = model or os.getenv("FILEGUARD_CLAUDE_MODEL", "claude-3-5-haiku-latest")
+    selected_model = model or os.getenv("FILEGUARD_CLAUDE_MODEL", "claude-haiku-4-5-20251001")
     prompt = build_claude_prompt(filename, extension, top_level_folder, categories)
     client = Anthropic(api_key=selected_api_key)
     response = client.messages.create(
@@ -114,4 +117,3 @@ def _extract_text(response: object) -> str:
         raise ClaudeClassificationError("Claude response did not contain text")
 
     return text
-

@@ -1,38 +1,40 @@
 # FileGuard Agent
 
-FileGuard Agent is a local file organization tool. Version 4 keeps the V1 dry-run planner, V2 approval-based execution, and V3 rollback/safety guardrails, then adds optional Claude-assisted semantic classification for low-confidence files.
+FileGuard Agent is a local file organization tool. Version 5 keeps dry-run planning, approval-based execution, rollback, safety guardrails, and audit logs, then makes Claude-first semantic sorting the default when an Anthropic API key is available.
 
 ## Current Roadmap
 
 - V1: dry-run planner
 - V2: approval-based execution
-- V3: rollback and safety
-- V4: Claude-assisted classification
-- V5: polish and docs
-- V6: OpenClaw integration
+- V3: rollback and safety guardrails
+- V4: optional Claude semantic classification
+- V5: Claude-first classification with rules fallback
+- V6: project polish and demo
+- V7: OpenClaw integration
 
-## V4 Features
+## V5 Classification Behavior
 
-- Default mode is free, local, and rule-based.
-- Smart mode can optionally use Claude for low-confidence semantic classification.
-- Claude is disabled by default and never required for normal operation.
-- Missing API keys do not break preview.
-- Claude never changes the top-level extension folder.
-- API calls are capped with `FILEGUARD_MAX_CLAUDE_CALLS`.
-- Tests mock Claude and do not call the real API.
-- Preview is still dry-run only.
-- Execution still requires approval.
-- Rollback still restores executed plans.
+Top-level folders are always deterministic and rule-based by extension. Claude can only choose the semantic subfolder.
+
+Supported preview modes:
+
+- `claude-first`: default. Uses Claude when available, falls back to rules when unavailable, disabled, missing an API key, failing, or over the max call limit.
+- `rules-only`: never calls Claude and only uses keyword rules.
+- `low-confidence`: V4 smart behavior. Uses rules first, then calls Claude only for low-confidence rule matches.
+
+Claude receives only safe metadata: filename, extension, and already-decided top-level folder. FileGuard does not send absolute source paths, protected files, API keys, or file contents to Claude.
 
 ## Safety Guardrails
 
-FileGuard does not delete files and does not overwrite files. If a destination already exists, it creates a safe filename such as `resume_2.pdf`. If rollback finds the original source path occupied, it restores to a safe filename such as `resume_rollback_2.pdf`.
+Preview is dry-run only. Claude classification only happens during preview/plan creation and never executes file operations.
+
+FileGuard does not delete files and does not overwrite files. Execution still requires approval. Rollback still restores executed plans.
 
 Protected path keywords include `.ssh`, `.aws`, `.gnupg`, `.git`, `node_modules`, `__pycache__`, `.venv`, and `venv`.
 
 Protected filenames include `.env`, `.env.local`, `.env.production`, `id_rsa`, `id_rsa.pub`, `credentials`, `credentials.json`, and `config.json`.
 
-Protected system paths include common Windows and Unix locations such as `C:\Windows`, `C:\Program Files`, `/etc`, `/usr`, `/bin`, `/sbin`, and `/var`.
+Do not run execution on your real Downloads folder yet. Use the demo folder or a temporary test folder first.
 
 ## Install
 
@@ -40,53 +42,49 @@ Protected system paths include common Windows and Unix locations such as `C:\Win
 pip install -r requirements.txt
 ```
 
-## Optional Claude Config
+## Optional Claude Setup
 
 Copy `.env.example` to `.env` if you want a template. The app reads environment variables directly.
 
-PowerShell example:
+PowerShell:
 
 ```powershell
-$env:FILEGUARD_CLAUDE_ENABLED="true"
+$env:FILEGUARD_CLAUDE_ENABLED="auto"
 $env:ANTHROPIC_API_KEY="your_key_here"
+$env:FILEGUARD_CLAUDE_MODEL="claude-haiku-4-5-20251001"
 $env:FILEGUARD_MAX_CLAUDE_CALLS="5"
 ```
 
-Rule-only mode:
+## Preview Examples
+
+Default Claude-first mode:
 
 ```powershell
 python -m fileguard.main preview --path ./demo_files/messy_downloads
 ```
 
-Smart mode:
+Rules-only mode:
+
+```powershell
+python -m fileguard.main preview --path ./demo_files/messy_downloads --rules-only
+```
+
+Low-confidence mode:
+
+```powershell
+python -m fileguard.main preview --path ./demo_files/messy_downloads --low-confidence
+```
+
+Backward-compatible smart alias:
 
 ```powershell
 python -m fileguard.main preview --path ./demo_files/messy_downloads --smart
 ```
 
-## CLI Usage
-
-Create a dry-run preview plan:
-
-```powershell
-python -m fileguard.main preview --path ./demo_files/messy_downloads
-```
-
-Use smart mode:
-
-```powershell
-python -m fileguard.main preview --path ./demo_files/messy_downloads --smart
-```
-
-Show a saved plan:
+## Plan Commands
 
 ```powershell
 python -m fileguard.main show-plan <PLAN_ID>
-```
-
-Approve, execute, audit, and rollback:
-
-```powershell
 python -m fileguard.main approve <PLAN_ID>
 python -m fileguard.main execute <PLAN_ID>
 python -m fileguard.main audit <PLAN_ID>
@@ -101,51 +99,52 @@ python -m fileguard.main reset-demo
 
 All plan commands accept `--db ./fileguard.db`.
 
-## Manual V4 Tests
+## Manual V5 Tests
 
-Test 1: normal rule-based mode
+Test 1: unit tests
 
 ```powershell
 python -m pytest
+```
+
+Test 2: default preview without API key
+
+```powershell
+Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+Remove-Item Env:FILEGUARD_CLAUDE_ENABLED -ErrorAction SilentlyContinue
 python -m fileguard.main preview --path ./demo_files/messy_downloads
 ```
 
-Expected: tests pass, preview works, no Claude calls, and no files are moved.
+Expected: app does not crash, reports Claude-first fallback to rules, dry run only, and no files are moved.
 
-Test 2: smart mode without API key
+Test 3: rules-only mode
 
 ```powershell
-python -m fileguard.main preview --path ./demo_files/messy_downloads --smart
+python -m fileguard.main preview --path ./demo_files/messy_downloads --rules-only
 ```
 
-Expected: the app does not crash, prints a Claude disabled or missing key message, falls back to rule-based classification, and no files are moved.
+Expected: no Claude calls, classifiers are `rules`, and no files are moved.
 
-Test 3: smart mode with API key, optional
+Test 4: Claude-first real test, optional
 
 ```powershell
-$env:FILEGUARD_CLAUDE_ENABLED="true"
-$env:ANTHROPIC_API_KEY="your_key_here"
+$env:FILEGUARD_CLAUDE_ENABLED="auto"
+$env:ANTHROPIC_API_KEY="your_real_key_here"
+$env:FILEGUARD_CLAUDE_MODEL="claude-haiku-4-5-20251001"
 $env:FILEGUARD_MAX_CLAUDE_CALLS="5"
-python -m fileguard.main preview --path ./demo_files/messy_downloads --smart
+python -m fileguard.main preview --path ./demo_files/messy_downloads
 ```
 
-Expected: Claude only runs for low-confidence files, high-confidence files stay rule-based, output shows Claude calls used, and no files are moved.
+Expected: Claude calls used is greater than 0 and at most 5, some files show `classifier: claude`, remaining files may show `rules_fallback` if max calls is reached, dry run only, and no files are moved.
 
-## Execution And Rollback Warning
-
-Preview is dry-run only. Claude classification only happens during preview/plan creation and never executes file operations.
-
-Execution physically moves files from the source folder into `Organized/`:
+Test 5: approval, execution, rollback, audit
 
 ```powershell
+python -m fileguard.main approve <PLAN_ID>
 python -m fileguard.main execute <PLAN_ID>
-```
-
-Rollback physically moves files back toward their original source paths:
-
-```powershell
 python -m fileguard.main rollback <PLAN_ID>
+python -m fileguard.main audit <PLAN_ID>
 ```
 
-Do not run execution on your real Downloads folder yet. Use the demo folder or a temporary test folder first.
+Expected: execution still requires approval, files move only after approval, rollback restores files, and audit logs include actions.
 

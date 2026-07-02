@@ -13,13 +13,14 @@ def test_create_plan_builds_expected_destination_path(tmp_path: Path) -> None:
         modified_time="2026-06-22T15:30:12",
     )
 
-    moves = create_plan([file_item], Path("Organized"))
+    moves = create_plan([file_item], Path("Organized"), classification_mode="rules-only")
 
     assert len(moves) == 1
     assert moves[0].destination_path == str(Path("Organized") / "Documents" / "PDFs" / "Resumes" / file_item.name)
     assert moves[0].source_path == file_item.source_path
     assert moves[0].top_level_folder == "Documents/PDFs"
     assert moves[0].semantic_folder == "Resumes"
+    assert moves[0].classifier == "rules"
 
 
 def test_create_plan_skips_protected_files(tmp_path: Path) -> None:
@@ -38,7 +39,7 @@ def test_create_plan_skips_protected_files(tmp_path: Path) -> None:
         modified_time="2026-06-22T15:30:12",
     )
 
-    moves = create_plan([protected_file, normal_file], Path("Organized"))
+    moves = create_plan([protected_file, normal_file], Path("Organized"), classification_mode="rules-only")
 
     assert len(moves) == 1
     assert moves[0].filename == "lecture_notes.txt"

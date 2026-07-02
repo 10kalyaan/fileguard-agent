@@ -26,6 +26,8 @@ def test_preview_command_runs_on_demo_files(tmp_path: Path) -> None:
 
     assert "Plan ID: plan_" in result.stdout
     assert "Files scanned: 10" in result.stdout
+    assert "Classification mode: claude-first" in result.stdout
+    assert "Claude-first mode selected, but Claude is unavailable." in result.stdout
     assert "Dry run only. No files were moved." in result.stdout
     assert db_path.exists()
 
@@ -94,11 +96,63 @@ def test_rollback_command_refuses_unexecuted_plan(tmp_path: Path) -> None:
     assert "must be executed" in result.stderr
 
 
-def test_smart_preview_without_enabled_claude_does_not_crash(tmp_path: Path) -> None:
+def test_rules_only_preview_never_uses_claude(tmp_path: Path) -> None:
     db_path = tmp_path / "fileguard.db"
     env = os.environ.copy()
-    env["FILEGUARD_CLAUDE_ENABLED"] = "false"
+    env["FILEGUARD_CLAUDE_ENABLED"] = "true"
     env.pop("ANTHROPIC_API_KEY", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "fileguard.main",
+            "preview",
+            "--path",
+            "./demo_files/messy_downloads",
+            "--db",
+            str(db_path),
+            "--rules-only",
+        ],
+        check=True,
+        capture_output=True,
+        env=env,
+        text=True,
+    )
+
+    assert "Classification mode: rules-only" in result.stdout
+    assert "Claude calls used: 0 / 50" in result.stdout
+    assert "classifier: rules" in result.stdout
+    assert "Dry run only. No files were moved." in result.stdout
+
+
+def test_low_confidence_preview_mode_works(tmp_path: Path) -> None:
+    db_path = tmp_path / "fileguard.db"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "fileguard.main",
+            "preview",
+            "--path",
+            "./demo_files/messy_downloads",
+            "--db",
+            str(db_path),
+            "--low-confidence",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Classification mode: low-confidence" in result.stdout
+    assert "Claude calls used: 0 / 50" in result.stdout
+    assert "Dry run only. No files were moved." in result.stdout
+
+
+def test_smart_preview_alias_works(tmp_path: Path) -> None:
+    db_path = tmp_path / "fileguard.db"
 
     result = subprocess.run(
         [
@@ -114,11 +168,10 @@ def test_smart_preview_without_enabled_claude_does_not_crash(tmp_path: Path) -> 
         ],
         check=True,
         capture_output=True,
-        env=env,
         text=True,
     )
 
-    assert "Smart mode requested, but Claude is disabled. Using rule-based classification." in result.stdout
+    assert "Classification mode: low-confidence" in result.stdout
     assert "Plan ID: plan_" in result.stdout
     assert "Dry run only. No files were moved." in result.stdout
 
