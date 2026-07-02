@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import re
 import subprocess
 import sys
@@ -91,6 +92,35 @@ def test_rollback_command_refuses_unexecuted_plan(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "must be executed" in result.stderr
+
+
+def test_smart_preview_without_enabled_claude_does_not_crash(tmp_path: Path) -> None:
+    db_path = tmp_path / "fileguard.db"
+    env = os.environ.copy()
+    env["FILEGUARD_CLAUDE_ENABLED"] = "false"
+    env.pop("ANTHROPIC_API_KEY", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "fileguard.main",
+            "preview",
+            "--path",
+            "./demo_files/messy_downloads",
+            "--db",
+            str(db_path),
+            "--smart",
+        ],
+        check=True,
+        capture_output=True,
+        env=env,
+        text=True,
+    )
+
+    assert "Smart mode requested, but Claude is disabled. Using rule-based classification." in result.stdout
+    assert "Plan ID: plan_" in result.stdout
+    assert "Dry run only. No files were moved." in result.stdout
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess:

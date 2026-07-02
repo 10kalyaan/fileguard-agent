@@ -1,3 +1,6 @@
+from fileguard.config import ALLOWED_SEMANTIC_FOLDERS
+
+
 KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("resume", "cv", "curriculum"), "Resumes"),
     (("invoice", "receipt", "bill", "statement", "rent", "bank"), "Finance"),
@@ -24,4 +27,3 @@ def classify_keywords(filename: str, top_level_folder: str) -> tuple[str, float,
                 )
 
     return "Misc", 0.5, f"No filename keyword matched within {top_level_folder}"
-

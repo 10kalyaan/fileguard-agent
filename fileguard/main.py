@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 import sys
 
+from fileguard.config import get_claude_config
 from fileguard.db import approve_plan, get_audit_log, get_plan, save_plan
 from fileguard.executor import execute_plan
 from fileguard.planner import create_plan
@@ -37,13 +38,26 @@ def run_preview(args: argparse.Namespace) -> None:
     source_folder = Path(args.path)
     output_root = Path(args.output_root)
     db_path = Path(args.db)
+    smart_requested = (args.smart or args.claude) and not args.no_claude
+    config = get_claude_config()
+    use_claude = False
+
+    if smart_requested:
+        if not config["enabled"]:
+            print("Smart mode requested, but Claude is disabled. Using rule-based classification.")
+        elif not config["api_key"]:
+            print("Smart mode requested, but ANTHROPIC_API_KEY is missing. Using rule-based classification.")
+        else:
+            use_claude = True
 
     files = scan_folder(source_folder)
-    moves = create_plan(files, output_root)
+    moves = create_plan(files, output_root, use_claude=use_claude, claude_config=config)
     plan_id = save_plan(db_path, source_folder, output_root, moves)
 
     print(f"Plan ID: {plan_id}")
     print(f"Files scanned: {len(files)}")
+    if smart_requested:
+        _print_smart_summary(moves, config, use_claude)
     print()
     _print_moves(moves)
     print()
@@ -157,6 +171,9 @@ def _build_parser() -> argparse.ArgumentParser:
     preview_parser.add_argument("--path", required=True, help="Folder to scan")
     preview_parser.add_argument("--output-root", default="./Organized", help="Root folder for proposed destinations")
     preview_parser.add_argument("--db", default="./fileguard.db", help="SQLite database path")
+    preview_parser.add_argument("--smart", action="store_true", help="Use optional Claude classification for low-confidence files")
+    preview_parser.add_argument("--claude", action="store_true", help="Alias for --smart")
+    preview_parser.add_argument("--no-claude", action="store_true", help="Disable Claude even if --smart is present")
     preview_parser.set_defaults(handler=run_preview)
 
     show_parser = subparsers.add_parser("show-plan", help="Display a saved dry-run plan")
@@ -204,6 +221,22 @@ def _print_moves(moves: list) -> None:
         print(f"  -> {destination_path}")
         print(f"  confidence: {confidence:.2f}")
         print(f"  reason: {reason}")
+
+
+def _print_smart_summary(moves: list, config: dict, use_claude: bool) -> None:
+    claude_count = _count_classifier(moves, "claude")
+    fallback_count = _count_classifier(moves, "rules_fallback")
+    rules_count = _count_classifier(moves, "rules")
+    max_calls = config.get("max_api_calls_per_run", 0)
+
+    print(f"Claude calls used: {claude_count + fallback_count} / {max_calls if use_claude else 0}")
+    print(f"Rule-based classifications: {rules_count}")
+    print(f"Claude classifications: {claude_count}")
+    print(f"Fallbacks: {fallback_count}")
+
+
+def _count_classifier(moves: list, classifier: str) -> int:
+    return sum(1 for move in moves if _field(move, "classifier") == classifier)
 
 
 def _field(item: object, field_name: str):
