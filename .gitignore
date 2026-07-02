@@ -1,4 +1,5 @@
 __pycache__/
+**__pycache__/
 *.pyc
 .pytest_cache/
 fileguard.db
@@ -6,4 +7,5 @@ fileguard.db
 .venv/
 venv/
 Organized/
-
+.coverage
+htmlcov/

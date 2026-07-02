@@ -176,6 +176,12 @@ def test_smart_preview_alias_works(tmp_path: Path) -> None:
     assert "Dry run only. No files were moved." in result.stdout
 
 
+def test_version_command_works() -> None:
+    result = _run_cli("version")
+
+    assert "FileGuard Agent 0.7.0" in result.stdout
+
+
 def _run_cli(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, "-m", "fileguard.main", *args],

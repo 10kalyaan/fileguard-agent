@@ -8,6 +8,7 @@ from fileguard.executor import execute_plan
 from fileguard.planner import create_plan_with_summary
 from fileguard.rollback import rollback_plan
 from fileguard.scanner import scan_folder
+from fileguard.version import __version__
 
 
 DEMO_FILES = (
@@ -161,6 +162,10 @@ def run_reset_demo(_args: argparse.Namespace) -> None:
     print(f"Demo files are present in {demo_folder}")
 
 
+def run_version(_args: argparse.Namespace) -> None:
+    print(f"FileGuard Agent {__version__}")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="FileGuard Agent dry-run file organization planner")
     subparsers = parser.add_subparsers(required=True)
@@ -205,6 +210,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     reset_demo_parser = subparsers.add_parser("reset-demo", help="Recreate the original empty demo files")
     reset_demo_parser.set_defaults(handler=run_reset_demo)
+
+    version_parser = subparsers.add_parser("version", help="Show FileGuard Agent version")
+    version_parser.set_defaults(handler=run_version)
 
     return parser
 
