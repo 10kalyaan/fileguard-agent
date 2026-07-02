@@ -3,12 +3,17 @@ from pathlib import Path
 from fileguard.extension_classifier import classify_extension
 from fileguard.keyword_classifier import classify_keywords
 from fileguard.models import FileItem, PlannedMove
+from fileguard.safety import validate_file_for_planning
 
 
 def create_plan(files: list[FileItem], output_root: Path) -> list[PlannedMove]:
     moves: list[PlannedMove] = []
 
     for file_item in files:
+        is_safe, _reason = validate_file_for_planning(Path(file_item.source_path))
+        if not is_safe:
+            continue
+
         extension_folder, extension_confidence, extension_reason = classify_extension(file_item.extension)
         semantic_folder, keyword_confidence, keyword_reason = classify_keywords(file_item.name, extension_folder)
         destination_path = output_root / extension_folder / semantic_folder / file_item.name
@@ -28,4 +33,3 @@ def create_plan(files: list[FileItem], output_root: Path) -> list[PlannedMove]:
         )
 
     return moves
-

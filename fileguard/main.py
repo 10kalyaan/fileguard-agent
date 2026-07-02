@@ -5,7 +5,22 @@ import sys
 from fileguard.db import approve_plan, get_audit_log, get_plan, save_plan
 from fileguard.executor import execute_plan
 from fileguard.planner import create_plan
+from fileguard.rollback import rollback_plan
 from fileguard.scanner import scan_folder
+
+
+DEMO_FILES = (
+    "Kalyaan_Resume_Final.pdf",
+    "Sarvam_Backend_Takehome.pdf",
+    "rent_receipt_june.pdf",
+    "Screenshot_2026_06_22.png",
+    "kafka_project.zip",
+    "main.py",
+    "bank_statement.xlsx",
+    "random_download.bin",
+    "lecture_notes.txt",
+    "setup_installer.exe",
+)
 
 
 def main() -> None:
@@ -47,6 +62,8 @@ def run_show_plan(args: argparse.Namespace) -> None:
         print(f"Approved at: {plan['approved_at']}")
     if plan.get("executed_at"):
         print(f"Executed at: {plan['executed_at']}")
+    if plan.get("rolled_back_at"):
+        print(f"Rolled back at: {plan['rolled_back_at']}")
     print(f"Proposed/final moves: {len(plan['moves'])}")
     print()
     _print_moves(plan["moves"])
@@ -100,6 +117,38 @@ def run_audit(args: argparse.Namespace) -> None:
             print(f"  message: {entry['message']}")
 
 
+def run_rollback(args: argparse.Namespace) -> None:
+    summary = rollback_plan(Path(args.db), args.plan_id)
+
+    print(f"Plan ID: {summary['plan_id']}")
+    print(f"Restored: {summary['restored_count']}")
+    print(f"Skipped: {summary['skipped_count']}")
+    print(f"Failed: {summary['failed_count']}")
+    print()
+
+    for restored_file in summary["restored_files"]:
+        print(f"- restored: {restored_file['source_path']}")
+        print(f"  -> {restored_file['destination_path']}")
+
+    for skipped_file in summary["skipped_files"]:
+        print(f"- skipped: {skipped_file['source_path']}")
+        print(f"  reason: {skipped_file['message']}")
+
+    for failed_file in summary["failed_files"]:
+        print(f"- failed: {failed_file['source_path']}")
+        print(f"  reason: {failed_file['message']}")
+
+
+def run_reset_demo(_args: argparse.Namespace) -> None:
+    demo_folder = Path("demo_files") / "messy_downloads"
+    demo_folder.mkdir(parents=True, exist_ok=True)
+
+    for filename in DEMO_FILES:
+        (demo_folder / filename).touch(exist_ok=True)
+
+    print(f"Demo files are present in {demo_folder}")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="FileGuard Agent dry-run file organization planner")
     subparsers = parser.add_subparsers(required=True)
@@ -129,6 +178,14 @@ def _build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument("plan_id", help="Plan ID to audit")
     audit_parser.add_argument("--db", default="./fileguard.db", help="SQLite database path")
     audit_parser.set_defaults(handler=run_audit)
+
+    rollback_parser = subparsers.add_parser("rollback", help="Rollback an executed plan")
+    rollback_parser.add_argument("plan_id", help="Plan ID to rollback")
+    rollback_parser.add_argument("--db", default="./fileguard.db", help="SQLite database path")
+    rollback_parser.set_defaults(handler=run_rollback)
+
+    reset_demo_parser = subparsers.add_parser("reset-demo", help="Recreate the original empty demo files")
+    reset_demo_parser.set_defaults(handler=run_reset_demo)
 
     return parser
 

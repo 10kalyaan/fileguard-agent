@@ -2,20 +2,20 @@ from datetime import datetime
 from pathlib import Path
 
 from fileguard.models import FileItem
+from fileguard.safety import validate_file_for_planning, validate_source_folder
 
 
 def scan_folder(path: Path) -> list[FileItem]:
     folder = path.expanduser()
-
-    if not folder.exists():
-        raise FileNotFoundError(f"Folder does not exist: {folder}")
-
-    if not folder.is_dir():
-        raise NotADirectoryError(f"Path is not a directory: {folder}")
+    validate_source_folder(folder)
 
     files: list[FileItem] = []
     for entry in sorted(folder.iterdir(), key=lambda item: item.name.lower()):
         if not entry.is_file():
+            continue
+
+        is_safe, _reason = validate_file_for_planning(entry)
+        if not is_safe:
             continue
 
         stat = entry.stat()
@@ -30,4 +30,3 @@ def scan_folder(path: Path) -> list[FileItem]:
         )
 
     return files
-

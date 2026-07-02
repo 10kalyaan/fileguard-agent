@@ -5,7 +5,7 @@ import sqlite3
 from fileguard.models import PlannedMove
 
 
-VALID_PLAN_STATUSES = {"previewed", "approved", "executed", "failed"}
+VALID_PLAN_STATUSES = {"previewed", "approved", "executed", "failed", "rolled_back"}
 
 
 def init_db(db_path: Path) -> None:
@@ -20,12 +20,14 @@ def init_db(db_path: Path) -> None:
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 approved_at TEXT,
-                executed_at TEXT
+                executed_at TEXT,
+                rolled_back_at TEXT
             )
             """
         )
         _add_column_if_missing(connection, "plans", "approved_at", "TEXT")
         _add_column_if_missing(connection, "plans", "executed_at", "TEXT")
+        _add_column_if_missing(connection, "plans", "rolled_back_at", "TEXT")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS planned_moves (
@@ -122,7 +124,7 @@ def get_plan(db_path: Path, plan_id: str) -> dict:
         connection.row_factory = sqlite3.Row
         plan_row = connection.execute(
             """
-            SELECT id, source_folder, output_root, status, created_at, approved_at, executed_at
+            SELECT id, source_folder, output_root, status, created_at, approved_at, executed_at, rolled_back_at
             FROM plans
             WHERE id = ?
             """,
@@ -193,6 +195,9 @@ def approve_plan(db_path: Path, plan_id: str) -> str:
         if status == "failed":
             raise ValueError(f"Plan failed and cannot be approved: {plan_id}")
 
+        if status == "rolled_back":
+            raise ValueError(f"Plan has already been rolled back and cannot be approved: {plan_id}")
+
     raise ValueError(f"Plan has unsupported status '{status}': {plan_id}")
 
 
@@ -206,6 +211,8 @@ def update_plan_status(db_path: Path, plan_id: str, status: str) -> None:
         timestamp_field = "approved_at"
     elif status in {"executed", "failed"}:
         timestamp_field = "executed_at"
+    elif status == "rolled_back":
+        timestamp_field = "rolled_back_at"
 
     now = datetime.now().isoformat(timespec="seconds")
     with sqlite3.connect(db_path) as connection:
@@ -237,6 +244,10 @@ def update_planned_move_destination(
             """,
             (destination_path, plan_id, source_path),
         )
+
+
+def mark_plan_rolled_back(db_path: Path, plan_id: str) -> None:
+    update_plan_status(db_path, plan_id, "rolled_back")
 
 
 def add_audit_log(

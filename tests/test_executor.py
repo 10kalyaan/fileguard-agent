@@ -104,6 +104,57 @@ def test_execution_creates_audit_log_entries(tmp_path: Path) -> None:
     assert "plan_executed" in actions
 
 
+def test_executor_skips_protected_source_files_and_logs_skip(tmp_path: Path) -> None:
+    source_folder = tmp_path / "messy"
+    source_folder.mkdir()
+    source_file = source_folder / ".env"
+    source_file.write_text("secret")
+    destination = tmp_path / "Organized" / "Review Needed" / "Misc" / ".env"
+    db_path = tmp_path / "fileguard.db"
+    plan_id = save_plan(
+        db_path,
+        source_folder,
+        tmp_path / "Organized",
+        [_planned_move(source_file, destination)],
+    )
+    approve_plan(db_path, plan_id)
+
+    summary = execute_plan(db_path, plan_id)
+    actions = [entry["action"] for entry in get_audit_log(db_path, plan_id)]
+    plan = get_plan(db_path, plan_id)
+
+    assert summary["moved_count"] == 0
+    assert summary["skipped_count"] == 1
+    assert source_file.exists()
+    assert "file_skipped" in actions
+    assert plan["status"] == "failed"
+
+
+def test_executor_refuses_destination_outside_output_root(tmp_path: Path) -> None:
+    source_folder = tmp_path / "messy"
+    source_folder.mkdir()
+    source_file = source_folder / "resume.pdf"
+    source_file.write_text("resume")
+    destination = tmp_path / "outside" / "resume.pdf"
+    db_path = tmp_path / "fileguard.db"
+    plan_id = save_plan(
+        db_path,
+        source_folder,
+        tmp_path / "Organized",
+        [_planned_move(source_file, destination)],
+    )
+    approve_plan(db_path, plan_id)
+
+    summary = execute_plan(db_path, plan_id)
+    actions = [entry["action"] for entry in get_audit_log(db_path, plan_id)]
+
+    assert summary["moved_count"] == 0
+    assert summary["skipped_count"] == 1
+    assert source_file.exists()
+    assert not destination.exists()
+    assert "file_skipped" in actions
+
+
 def _planned_move(source_path: Path, destination_path: Path) -> PlannedMove:
     return PlannedMove(
         source_path=str(source_path),

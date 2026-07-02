@@ -22,7 +22,7 @@ def test_scan_folder_scans_direct_files_and_ignores_directories(tmp_path: Path) 
 
 
 def test_scan_folder_raises_for_missing_path(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="Folder does not exist"):
+    with pytest.raises(ValueError, match="Source folder does not exist"):
         scan_folder(tmp_path / "missing")
 
 
@@ -30,6 +30,14 @@ def test_scan_folder_raises_for_non_directory(tmp_path: Path) -> None:
     file_path = tmp_path / "file.txt"
     file_path.write_text("demo")
 
-    with pytest.raises(NotADirectoryError, match="Path is not a directory"):
+    with pytest.raises(ValueError, match="Source path is not a directory"):
         scan_folder(file_path)
 
+
+def test_scan_folder_skips_protected_files(tmp_path: Path) -> None:
+    (tmp_path / "notes.txt").write_text("notes")
+    (tmp_path / ".env").write_text("secret")
+
+    files = scan_folder(tmp_path)
+
+    assert [file.name for file in files] == ["notes.txt"]

@@ -50,15 +50,47 @@ def test_approve_execute_and_audit_commands_work(tmp_path: Path) -> None:
 
     approve = _run_cli("approve", plan_id, "--db", str(db_path))
     execute = _run_cli("execute", plan_id, "--db", str(db_path))
+    rollback = _run_cli("rollback", plan_id, "--db", str(db_path))
     audit = _run_cli("audit", plan_id, "--db", str(db_path))
 
     assert f"Plan approved: {plan_id}" in approve.stdout
     assert "Moved: 1" in execute.stdout
-    assert not source_file.exists()
-    assert (output_root / "Documents" / "PDFs" / "Resumes" / "resume.pdf").exists()
+    assert "Restored: 1" in rollback.stdout
+    assert source_file.exists()
+    assert not (output_root / "Documents" / "PDFs" / "Resumes" / "resume.pdf").exists()
     assert "plan_approved" in audit.stdout
     assert "file_moved" in audit.stdout
     assert "plan_executed" in audit.stdout
+    assert "rollback_started" in audit.stdout
+    assert "file_restored" in audit.stdout
+    assert "plan_rolled_back" in audit.stdout
+
+
+def test_rollback_command_refuses_unexecuted_plan(tmp_path: Path) -> None:
+    source_folder = tmp_path / "messy"
+    source_folder.mkdir()
+    (source_folder / "resume.pdf").write_text("resume")
+    db_path = tmp_path / "fileguard.db"
+
+    preview = _run_cli(
+        "preview",
+        "--path",
+        str(source_folder),
+        "--output-root",
+        str(tmp_path / "Organized"),
+        "--db",
+        str(db_path),
+    )
+    plan_id = re.search(r"Plan ID: (plan_\d{8}_\d{6}(?:_\d+)?)", preview.stdout).group(1)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "fileguard.main", "rollback", plan_id, "--db", str(db_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "must be executed" in result.stderr
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess:
