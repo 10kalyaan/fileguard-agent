@@ -1,7 +1,9 @@
 import argparse
 from pathlib import Path
+import sys
 
-from fileguard.db import get_plan, save_plan
+from fileguard.db import approve_plan, get_audit_log, get_plan, save_plan
+from fileguard.executor import execute_plan
 from fileguard.planner import create_plan
 from fileguard.scanner import scan_folder
 
@@ -9,7 +11,11 @@ from fileguard.scanner import scan_folder
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
-    args.handler(args)
+    try:
+        args.handler(args)
+    except (FileNotFoundError, KeyError, NotADirectoryError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
 def run_preview(args: argparse.Namespace) -> None:
@@ -37,11 +43,61 @@ def run_show_plan(args: argparse.Namespace) -> None:
     print(f"Output root: {plan['output_root']}")
     print(f"Status: {plan['status']}")
     print(f"Created at: {plan['created_at']}")
-    print(f"Proposed moves: {len(plan['moves'])}")
+    if plan.get("approved_at"):
+        print(f"Approved at: {plan['approved_at']}")
+    if plan.get("executed_at"):
+        print(f"Executed at: {plan['executed_at']}")
+    print(f"Proposed/final moves: {len(plan['moves'])}")
     print()
     _print_moves(plan["moves"])
     print()
-    print("Dry run only. No files were moved.")
+    if plan["status"] in {"previewed", "approved"}:
+        print("No files are moved until an approved plan is executed.")
+
+
+def run_approve(args: argparse.Namespace) -> None:
+    message = approve_plan(Path(args.db), args.plan_id)
+    print(message)
+    print("No files were moved.")
+
+
+def run_execute(args: argparse.Namespace) -> None:
+    summary = execute_plan(Path(args.db), args.plan_id)
+
+    print(f"Plan ID: {summary['plan_id']}")
+    print(f"Moved: {summary['moved_count']}")
+    print(f"Skipped: {summary['skipped_count']}")
+    print(f"Failed: {summary['failed_count']}")
+    print()
+
+    for moved_file in summary["moved_files"]:
+        print(f"- moved: {moved_file['source_path']}")
+        print(f"  -> {moved_file['destination_path']}")
+
+    for skipped_file in summary["skipped_files"]:
+        print(f"- skipped: {skipped_file['source_path']}")
+        print(f"  reason: {skipped_file['message']}")
+
+    for failed_file in summary["failed_files"]:
+        print(f"- failed: {failed_file['source_path']}")
+        print(f"  reason: {failed_file['message']}")
+
+
+def run_audit(args: argparse.Namespace) -> None:
+    entries = get_audit_log(Path(args.db), args.plan_id)
+
+    if not entries:
+        print(f"No audit entries found for plan: {args.plan_id}")
+        return
+
+    for entry in entries:
+        print(f"- {entry['timestamp']} [{entry['status']}] {entry['action']}")
+        if entry["source_path"]:
+            print(f"  source: {entry['source_path']}")
+        if entry["destination_path"]:
+            print(f"  destination: {entry['destination_path']}")
+        if entry["message"]:
+            print(f"  message: {entry['message']}")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -58,6 +114,21 @@ def _build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("plan_id", help="Plan ID to load")
     show_parser.add_argument("--db", default="./fileguard.db", help="SQLite database path")
     show_parser.set_defaults(handler=run_show_plan)
+
+    approve_parser = subparsers.add_parser("approve", help="Approve a saved preview plan")
+    approve_parser.add_argument("plan_id", help="Plan ID to approve")
+    approve_parser.add_argument("--db", default="./fileguard.db", help="SQLite database path")
+    approve_parser.set_defaults(handler=run_approve)
+
+    execute_parser = subparsers.add_parser("execute", help="Execute an approved plan")
+    execute_parser.add_argument("plan_id", help="Plan ID to execute")
+    execute_parser.add_argument("--db", default="./fileguard.db", help="SQLite database path")
+    execute_parser.set_defaults(handler=run_execute)
+
+    audit_parser = subparsers.add_parser("audit", help="Display audit log entries for a plan")
+    audit_parser.add_argument("plan_id", help="Plan ID to audit")
+    audit_parser.add_argument("--db", default="./fileguard.db", help="SQLite database path")
+    audit_parser.set_defaults(handler=run_audit)
 
     return parser
 
@@ -87,4 +158,3 @@ def _field(item: object, field_name: str):
 
 if __name__ == "__main__":
     main()
-

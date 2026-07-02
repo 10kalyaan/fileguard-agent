@@ -1,23 +1,35 @@
-﻿# FileGuard Agent
+# FileGuard Agent
 
-FileGuard Agent V1 is a local-only, dry-run file organization planner. It scans a folder, classifies files by extension and filename keywords, creates proposed destination paths, and stores the preview plan in SQLite.
+FileGuard Agent is a local file organization tool. Version 2 keeps the V1 dry-run planner and adds approval-based execution with an audit log.
 
-## What V1 Does
+## V2 Features
 
 - Scans direct files in a selected folder.
-- Ignores directories and nested files.
-- Classifies files with deterministic extension and keyword rules.
-- Generates a dry-run movement plan.
-- Saves plans and proposed moves to SQLite.
-- Provides CLI commands to preview and inspect saved plans.
+- Classifies files by extension and filename keywords.
+- Creates a dry-run movement plan and saves it to SQLite.
+- Requires explicit approval before moving files.
+- Executes approved plans with duplicate-safe destination names.
+- Writes audit entries for approvals, moves, skips, failures, and execution.
+- Shows saved plans and audit history from the CLI.
 
-## What V1 Does Not Do
+## Safety Rules
 
-- It does not move files.
-- It does not delete files.
-- It does not rename files.
-- It does not modify user files.
-- It does not call Claude, OpenClaw, or any external API.
+- Preview is dry-run only.
+- Files only move after a saved plan is approved and executed.
+- FileGuard does not delete files.
+- FileGuard does not overwrite files.
+- If a destination exists, FileGuard creates a safe name like `resume_2.pdf`.
+- V2 does not use Claude, OpenClaw, or external APIs.
+
+## Important Warning
+
+The command below physically moves files from the source folder into `Organized/`:
+
+```powershell
+python -m fileguard.main execute <PLAN_ID>
+```
+
+Do not run execution on your real Downloads folder yet. Use the demo folder or a temporary test folder first.
 
 ## Install
 
@@ -25,7 +37,7 @@ FileGuard Agent V1 is a local-only, dry-run file organization planner. It scans 
 pip install -r requirements.txt
 ```
 
-## Test
+## Run Tests
 
 ```powershell
 python -m pytest
@@ -39,7 +51,7 @@ Create a dry-run preview plan:
 python -m fileguard.main preview --path ./demo_files/messy_downloads
 ```
 
-Optional arguments:
+Use a custom output root or database:
 
 ```powershell
 python -m fileguard.main preview --path ./demo_files/messy_downloads --output-root ./Organized --db ./fileguard.db
@@ -51,16 +63,78 @@ Show a saved plan:
 python -m fileguard.main show-plan <PLAN_ID>
 ```
 
-Optional database path:
+Approve a saved preview plan:
 
 ```powershell
-python -m fileguard.main show-plan <PLAN_ID> --db ./fileguard.db
+python -m fileguard.main approve <PLAN_ID>
 ```
 
-## Example Output
+Execute an approved plan:
+
+```powershell
+python -m fileguard.main execute <PLAN_ID>
+```
+
+Show audit log entries:
+
+```powershell
+python -m fileguard.main audit <PLAN_ID>
+```
+
+All commands accept `--db ./fileguard.db`.
+
+## Manual V2 Test Flow
+
+Step 1:
+
+```powershell
+python -m fileguard.main preview --path ./demo_files/messy_downloads
+```
+
+Step 2:
+
+Copy the printed plan id.
+
+Step 3:
+
+```powershell
+python -m fileguard.main show-plan <PLAN_ID>
+```
+
+Step 4:
+
+```powershell
+python -m fileguard.main execute <PLAN_ID>
+```
+
+Expected: execution fails because the plan is not approved.
+
+Step 5:
+
+```powershell
+python -m fileguard.main approve <PLAN_ID>
+```
+
+Step 6:
+
+```powershell
+python -m fileguard.main execute <PLAN_ID>
+```
+
+Expected: files move into `Organized/...` folders.
+
+Step 7:
+
+```powershell
+python -m fileguard.main audit <PLAN_ID>
+```
+
+Expected: audit entries show approval, file moves, and plan execution.
+
+## Example Preview Output
 
 ```text
-Plan ID: plan_20260622_153012
+Plan ID: plan_20260702_111457
 Files scanned: 10
 
 - C:\path\to\demo_files\messy_downloads\Kalyaan_Resume_Final.pdf
@@ -71,6 +145,3 @@ Files scanned: 10
 Dry run only. No files were moved.
 ```
 
-## Safety Note
-
-V1 is dry-run only. It only proposes moves and stores those proposals in SQLite. The source files remain in place.
